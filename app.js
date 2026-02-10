@@ -1,22 +1,55 @@
+// Подключаем Firebase
+import { db, auth, storage } from './firebase-config.js';
+
 class WorshipSongsApp {
     constructor() {
         this.tg = window.Telegram.WebApp;
         this.songs = [];
         this.playlists = [];
+        this.favorites = [];
         this.currentSong = null;
-        this.currentPage = 'songs';
-        this.transposeSemitones = 0;
+        this.currentUser = null;
+        this.isOnline = navigator.onLine;
+        this.pendingChanges = [];
         
-        this.chordMap = {
-            'C': 0, 'C#': 1, 'Db': 1, 'D': 2, 'D#': 3, 'Eb': 3,
-            'E': 4, 'F': 5, 'F#': 6, 'Gb': 6, 'G': 7, 'G#': 8,
-            'Ab': 8, 'A': 9, 'A#': 10, 'Bb': 10, 'B': 11
+        // Правильное музыкальное транспонирование
+        this.chordTheory = {
+            // Все тональности в правильном порядке (круг квинт)
+            keys: ['C', 'G', 'D', 'A', 'E', 'B', 'F#', 'C#', 'G#', 'D#', 'A#', 'F'],
+            // Аккорды и их семитоновые значения
+            chords: {
+                'C': 0, 'C#': 1, 'Db': 1, 'D': 2, 'D#': 3, 'Eb': 3,
+                'E': 4, 'F': 5, 'F#': 6, 'Gb': 6, 'G': 7, 'G#': 8,
+                'Ab': 8, 'A': 9, 'A#': 10, 'Bb': 10, 'B': 11,
+                // Минорные аккорды
+                'Cm': 0, 'C#m': 1, 'Dbm': 1, 'Dm': 2, 'D#m': 3, 'Ebm': 3,
+                'Em': 4, 'Fm': 5, 'F#m': 6, 'Gbm': 6, 'Gm': 7, 'G#m': 8,
+                'Abm': 8, 'Am': 9, 'A#m': 10, 'Bbm': 10, 'Bm': 11,
+                // Сложные аккорды (определяем базовую ноту)
+                'C7': 0, 'G7': 7, 'Am7': 9, 'Dm7': 2, 'Em7': 4,
+                'Fmaj7': 5, 'Gsus4': 7, 'Csus2': 0
+            },
+            // Знаки при ключе для каждой тональности
+            keySignatures: {
+                'C': { sharps: 0, flats: 0 },
+                'G': { sharps: 1, flats: 0 },
+                'D': { sharps: 2, flats: 0 },
+                'A': { sharps: 3, flats: 0 },
+                'E': { sharps: 4, flats: 0 },
+                'B': { sharps: 5, flats: 0 },
+                'F#': { sharps: 6, flats: 0 },
+                'C#': { sharps: 7, flats: 0 },
+                'G#': { sharps: 8, flats: 0 },
+                'D#': { sharps: 9, flats: 0 },
+                'A#': { sharps: 10, flats: 0 },
+                'F': { sharps: 0, flats: 1 },
+                'Bb': { sharps: 0, flats: 2 },
+                'Eb': { sharps: 0, flats: 3 },
+                'Ab': { sharps: 0, flats: 4 },
+                'Db': { sharps: 0, flats: 5 },
+                'Gb': { sharps: 0, flats: 6 }
+            }
         };
-        
-        this.chordNames = [
-            'C', 'C#', 'D', 'D#', 'E', 'F', 
-            'F#', 'G', 'G#', 'A', 'A#', 'B'
-        ];
         
         this.init();
     }
@@ -26,159 +59,299 @@ class WorshipSongsApp {
         this.tg.expand();
         this.tg.enableClosingConfirmation();
         
-        // Загрузка данных
-        await this.loadData();
+        // Загрузка пользователя из Telegram
+        this.initTelegramUser();
         
         // Инициализация интерфейса
         this.initUI();
         this.initEvents();
+        this.initFirebase();
         
-        // Показ основного интерфейса после загрузки
+        // Загрузка данных
+        await this.loadData();
+        
+        // Показ приложения
         setTimeout(() => {
             document.getElementById('loading-screen').classList.add('hidden');
             document.getElementById('app').classList.remove('hidden');
-            this.showToast('Приложение загружено!', 'success');
-        }, 2000);
+            this.showToast('Добро пожаловать в Worship Songs!', 'success');
+        }, 1500);
+    }
+
+    initTelegramUser() {
+        const tgUser = this.tg.initDataUnsafe.user;
+        if (tgUser) {
+            this.currentUser = {
+                id: tgUser.id.toString(),
+                firstName: tgUser.first_name,
+                lastName: tgUser.last_name,
+                username: tgUser.username,
+                photoUrl: tgUser.photo_url,
+                isAdmin: this.checkIfAdmin(tgUser.id)
+            };
+            
+            // Обновляем профиль
+            document.getElementById('user-name').textContent = 
+                tgUser.first_name || 'Участник';
+            document.getElementById('user-role').textContent = 
+                this.currentUser.isAdmin ? 'Администратор' : 'Участник команды';
+        }
+    }
+
+    checkIfAdmin(userId) {
+        // Список администраторов (можно вынести в Firebase)
+        const adminIds = ['123456789', '987654321']; // Замените на реальные ID
+        return adminIds.includes(userId.toString());
+    }
+
+    async initFirebase() {
+        try {
+            // Подписываемся на обновления песен в реальном времени
+            db.collection('songs').onSnapshot((snapshot) => {
+                const changes = snapshot.docChanges();
+                changes.forEach(change => {
+                    if (change.type === 'added' || change.type === 'modified') {
+                        this.updateSongInList(change.doc.data());
+                    } else if (change.type === 'removed') {
+                        this.removeSongFromList(change.doc.id);
+                    }
+                });
+                this.updateSyncIndicator('synced');
+            });
+            
+            // Подписываемся на плейлисты
+            db.collection('playlists').onSnapshot((snapshot) => {
+                this.playlists = snapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                }));
+                this.renderPlaylists();
+                this.updateCounters();
+            });
+            
+            // Отслеживаем онлайн-статус
+            window.addEventListener('online', () => this.handleOnlineStatus(true));
+            window.addEventListener('offline', () => this.handleOnlineStatus(false));
+            
+        } catch (error) {
+            console.error('Ошибка Firebase:', error);
+            this.showToast('Ошибка подключения к серверу', 'error');
+        }
+    }
+
+    updateSyncIndicator(status) {
+        const indicator = document.getElementById('sync-indicator');
+        if (!indicator) return;
+        
+        indicator.className = `sync-indicator ${status}`;
+        indicator.innerHTML = status === 'syncing' 
+            ? '<i class="fas fa-sync fa-spin"></i> Синхронизация...'
+            : status === 'synced'
+            ? '<i class="fas fa-check-circle"></i> Синхронизировано'
+            : '<i class="fas fa-exclamation-circle"></i> Ошибка синхронизации';
     }
 
     async loadData() {
         try {
-            // Загрузка из localStorage или создание демо-данных
-            const savedSongs = localStorage.getItem('worship_songs');
-            const savedPlaylists = localStorage.getItem('worship_playlists');
+            // Загрузка из Firebase
+            const songsSnapshot = await db.collection('songs').get();
+            this.songs = songsSnapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
             
-            if (savedSongs) {
-                this.songs = JSON.parse(savedSongs);
-            } else {
-                // Демо-данные
-                this.songs = [
-                    {
-                        id: 1,
-                        title: 'Великий Бог',
-                        artist: 'Hillsong на русском',
-                        key: 'G',
-                        category: 'worship',
-                        lyrics: `[G]Великий Бог, спаситель мой\n[C]Хочу вос-петь Тебе хва-[G]лу\n[D]Великий Бог, Ты святой\n[Em]Ты достоин всей хва-[C]лы`,
-                        createdAt: new Date().toISOString()
-                    },
-                    {
-                        id: 2,
-                        title: 'Река жизни',
-                        artist: 'Максим Гавриленко',
-                        key: 'C',
-                        category: 'praise',
-                        lyrics: `[C]Река жизни течет от пре-[G]стола\n[Am]Очищает, исцеляет [F]меня\n[C]Я хочу пить живую во-[G]ду\n[Am]И купаться в реке до [F]дна`,
-                        createdAt: new Date().toISOString()
-                    }
-                ];
-            }
+            const playlistsSnapshot = await db.collection('playlists').get();
+            this.playlists = playlistsSnapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
             
-            if (savedPlaylists) {
-                this.playlists = JSON.parse(savedPlaylists);
-            } else {
-                this.playlists = [
-                    {
-                        id: 1,
-                        name: 'Воскресное служение',
-                        description: 'Песни для воскресного богослужения',
-                        songs: [1, 2],
-                        createdAt: new Date().toISOString()
-                    }
-                ];
-            }
+            // Загрузка избранного из localStorage
+            const savedFavorites = localStorage.getItem('worship_favorites');
+            this.favorites = savedFavorites ? JSON.parse(savedFavorites) : [];
             
+            this.renderSongs();
+            this.renderPlaylists();
             this.updateCounters();
+            
         } catch (error) {
             console.error('Ошибка загрузки данных:', error);
-            this.showToast('Ошибка загрузки данных', 'error');
+            this.showToast('Используем локальные данные', 'warning');
+            // Загрузка из localStorage как запасной вариант
+            this.loadFromLocalStorage();
         }
     }
 
-    saveData() {
-        localStorage.setItem('worship_songs', JSON.stringify(this.songs));
-        localStorage.setItem('worship_playlists', JSON.stringify(this.playlists));
-    }
-
-    initUI() {
-        // Показ имени пользователя Telegram
-        const user = this.tg.initDataUnsafe.user;
-        if (user) {
-            document.getElementById('user-name').textContent = 
-                user.first_name || 'Участник команды';
+    loadFromLocalStorage() {
+        const savedSongs = localStorage.getItem('worship_songs');
+        const savedPlaylists = localStorage.getItem('worship_playlists');
+        
+        if (savedSongs) {
+            this.songs = JSON.parse(savedSongs);
+            this.renderSongs();
         }
         
-        // Отображение списка песен
-        this.renderSongs();
-        this.renderPlaylists();
+        if (savedPlaylists) {
+            this.playlists = JSON.parse(savedPlaylists);
+            this.renderPlaylists();
+        }
+    }
+
+    saveToFirebase(collection, data, id = null) {
+        this.updateSyncIndicator('syncing');
         
-        // Заполнение опций транспонирования
-        this.initTransposeOptions();
+        if (id) {
+            return db.collection(collection).doc(id).set(data, { merge: true });
+        } else {
+            return db.collection(collection).add(data);
+        }
     }
 
-    initEvents() {
-        // Навигация
-        document.querySelectorAll('.nav-item').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const page = e.currentTarget.dataset.page;
-                if (page) this.switchPage(page);
-            });
-        });
+    async saveSong(songData, isNew = true) {
+        try {
+            const song = {
+                ...songData,
+                updatedAt: new Date().toISOString(),
+                updatedBy: this.currentUser?.id || 'anonymous'
+            };
+            
+            if (isNew) {
+                song.createdAt = new Date().toISOString();
+                song.createdBy = this.currentUser?.id || 'anonymous';
+                const docRef = await this.saveToFirebase('songs', song);
+                song.id = docRef.id;
+            } else {
+                await this.saveToFirebase('songs', song, songData.id);
+            }
+            
+            this.showToast('Песня сохранена!', 'success');
+            return song;
+            
+        } catch (error) {
+            console.error('Ошибка сохранения:', error);
+            this.showToast('Ошибка сохранения', 'error');
+            // Сохраняем локально для синхронизации позже
+            this.queuePendingChange('songs', songData, isNew ? 'add' : 'update');
+            return null;
+        }
+    }
 
-        // Кнопка добавления песни
-        document.getElementById('add-song-btn').addEventListener('click', () => {
-            this.showAddSongModal();
-        });
+    async deleteSong(songId) {
+        try {
+            await db.collection('songs').doc(songId).delete();
+            this.showToast('Песня удалена', 'success');
+        } catch (error) {
+            console.error('Ошибка удаления:', error);
+            this.showToast('Ошибка удаления', 'error');
+            this.queuePendingChange('songs', { id: songId }, 'delete');
+        }
+    }
 
-        // Поиск
-        document.getElementById('search-input').addEventListener('input', (e) => {
-            this.filterSongs(e.target.value);
+    queuePendingChange(collection, data, action) {
+        this.pendingChanges.push({
+            collection,
+            data,
+            action,
+            timestamp: Date.now()
         });
+        
+        localStorage.setItem('pending_changes', JSON.stringify(this.pendingChanges));
+        this.showToast('Изменения сохранены локально', 'info');
+    }
 
-        // Фильтры
-        document.getElementById('filter-btn').addEventListener('click', () => {
-            const options = document.getElementById('filter-options');
-            options.classList.toggle('hidden');
-        });
+    async syncPendingChanges() {
+        if (!this.pendingChanges.length || !this.isOnline) return;
+        
+        this.updateSyncIndicator('syncing');
+        
+        for (const change of this.pendingChanges) {
+            try {
+                if (change.action === 'add' || change.action === 'update') {
+                    await this.saveToFirebase(change.collection, change.data, change.data.id);
+                } else if (change.action === 'delete') {
+                    await db.collection(change.collection).doc(change.data.id).delete();
+                }
+            } catch (error) {
+                console.error('Ошибка синхронизации:', error);
+                break;
+            }
+        }
+        
+        // Удаляем синхронизированные изменения
+        this.pendingChanges = [];
+        localStorage.removeItem('pending_changes');
+        this.updateSyncIndicator('synced');
+    }
 
-        // Модальные окна
-        document.querySelectorAll('.close-modal, .modal-overlay, .back-to-list').forEach(el => {
-            el.addEventListener('click', () => {
-                this.closeAllModals();
-            });
-        });
-
-        // Сохранение песни
-        document.getElementById('save-song-btn').addEventListener('click', () => {
-            this.saveNewSong();
-        });
-
-        // Транспонирование
-        document.getElementById('transpose-up').addEventListener('click', () => {
-            this.transposeSong(1);
-        });
-
-        document.getElementById('transpose-down').addEventListener('click', () => {
-            this.transposeSong(-1);
-        });
-
-        document.getElementById('transpose-select').addEventListener('change', (e) => {
-            this.transposeToKey(e.target.value);
-        });
-
-        // Аудиоплеер
-        document.querySelectorAll('.player-tab').forEach(tab => {
-            tab.addEventListener('click', (e) => {
-                const type = e.currentTarget.dataset.audio;
-                this.switchAudio(type);
-            });
-        });
-
-        // Создание плейлиста
-        document.getElementById('create-playlist-btn').addEventListener('click', () => {
-            this.showCreatePlaylistModal();
+    // ПРАВИЛЬНОЕ ТРАНСПОНИРОВАНИЕ АККОРДОВ
+    transposeChord(chord, semitones) {
+        if (!chord || chord.trim() === '') return chord;
+        
+        // Регулярное выражение для поиска аккордов
+        const chordRegex = /([A-G][#b]?)(m?(?:aj|min|dim|aug|sus)?(?:[2-9]|11|13)?(?:\/[A-G][#b]?)?)/g;
+        
+        return chord.replace(chordRegex, (match, note, extension) => {
+            // Находим базовую ноту
+            const baseNote = note;
+            const baseNoteIndex = this.chordTheory.chords[baseNote];
+            
+            if (baseNoteIndex === undefined) return match;
+            
+            // Вычисляем новую ноту
+            let newIndex = (baseNoteIndex + semitones + 12) % 12;
+            
+            // Находим новое имя ноты
+            let newNote = Object.keys(this.chordTheory.chords).find(key => 
+                this.chordTheory.chords[key] === newIndex && 
+                key.length === baseNote.length && 
+                (key.includes('#') === baseNote.includes('#') || 
+                 key.includes('b') === baseNote.includes('b'))
+            ) || baseNote;
+            
+            // Убираем возможные дубликаты (например, C# и Db)
+            if (newNote.includes('#')) {
+                newNote = newNote.replace('b', '');
+            } else if (newNote.includes('b')) {
+                newNote = newNote.replace('#', '');
+            }
+            
+            return newNote + extension;
         });
     }
 
+    transposeSongLyrics(lyrics, fromKey, toKey) {
+        if (!lyrics || !fromKey || !toKey) return lyrics;
+        
+        // Вычисляем разницу в полутонах
+        const fromIndex = this.chordTheory.chords[fromKey];
+        const toIndex = this.chordTheory.chords[toKey];
+        
+        if (fromIndex === undefined || toIndex === undefined) return lyrics;
+        
+        const semitones = (toIndex - fromIndex + 12) % 12;
+        
+        // Транспонируем каждый аккорд в тексте
+        const lines = lyrics.split('\n');
+        const transposedLines = lines.map(line => {
+            // Разделяем строку на аккорды и текст
+            const chordMatches = line.match(/\[([^\]]+)\]/g);
+            
+            if (!chordMatches) return line;
+            
+            let newLine = line;
+            chordMatches.forEach(match => {
+                const chord = match.slice(1, -1); // Убираем скобки
+                const transposedChord = this.transposeChord(chord, semitones);
+                newLine = newLine.replace(match, `[${transposedChord}]`);
+            });
+            
+            return newLine;
+        });
+        
+        return transposedLines.join('\n');
+    }
+
+    // ОБНОВЛЕННЫЙ РЕНДЕРИНГ ПЕСЕН С КНОПКАМИ
     renderSongs(filteredSongs = null) {
         const songsList = document.getElementById('songs-list');
         const songsToShow = filteredSongs || this.songs;
@@ -186,10 +359,12 @@ class WorshipSongsApp {
         songsList.innerHTML = '';
         
         songsToShow.forEach(song => {
+            const isFavorite = this.favorites.includes(song.id);
             const songEl = document.createElement('div');
-            songEl.className = 'song-item glass-card';
+            songEl.className = 'song-item glass-card draggable';
+            songEl.dataset.songId = song.id;
             songEl.innerHTML = `
-                <div class="song-cover">
+                <div class="song-cover" style="background: ${this.getGradientForSong(song.id)}">
                     <i class="fas fa-music"></i>
                 </div>
                 <div class="song-info">
@@ -198,14 +373,46 @@ class WorshipSongsApp {
                     <div class="song-meta">
                         <span class="key-badge">${song.key}</span>
                         <span>${this.getCategoryName(song.category)}</span>
+                        ${song.updatedAt ? `<span class="updated-time">${this.formatDate(song.updatedAt)}</span>` : ''}
                     </div>
                 </div>
-                <i class="fas fa-chevron-right"></i>
+                <div class="song-actions-mini">
+                    <button class="icon-btn small favorite-btn ${isFavorite ? 'active' : ''}" 
+                            data-song-id="${song.id}" title="${isFavorite ? 'Удалить из избранного' : 'В избранное'}">
+                        <i class="fas ${isFavorite ? 'fa-star' : 'fa-star'}"></i>
+                    </button>
+                    <button class="icon-btn small context-btn" data-song-id="${song.id}">
+                        <i class="fas fa-ellipsis-v"></i>
+                    </button>
+                </div>
             `;
             
-            songEl.addEventListener('click', () => {
-                this.showSongModal(song);
+            // Клик по песне
+            songEl.addEventListener('click', (e) => {
+                if (!e.target.closest('.song-actions-mini')) {
+                    this.showSongModal(song);
+                }
             });
+            
+            // Кнопка избранного
+            const favBtn = songEl.querySelector('.favorite-btn');
+            favBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.toggleFavorite(song.id);
+            });
+            
+            // Контекстное меню
+            const contextBtn = songEl.querySelector('.context-btn');
+            contextBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.showContextMenu(e, song);
+            });
+            
+            // Drag & drop
+            songEl.setAttribute('draggable', 'true');
+            songEl.addEventListener('dragstart', (e) => this.handleDragStart(e, song.id));
+            songEl.addEventListener('dragover', (e) => this.handleDragOver(e));
+            songEl.addEventListener('drop', (e) => this.handleDrop(e, song.id));
             
             songsList.appendChild(songEl);
         });
@@ -213,334 +420,240 @@ class WorshipSongsApp {
         document.getElementById('songs-count').textContent = songsToShow.length;
     }
 
-    renderPlaylists() {
-        const playlistsList = document.getElementById('playlists-list');
-        playlistsList.innerHTML = '';
+    showContextMenu(e, song) {
+        const menu = document.getElementById('song-context-menu');
+        menu.classList.remove('hidden');
         
-        this.playlists.forEach(playlist => {
-            const playlistEl = document.createElement('div');
-            playlistEl.className = 'playlist-card glass-card';
-            playlistEl.innerHTML = `
-                <div class="playlist-icon">
-                    <i class="fas fa-list-music"></i>
-                </div>
-                <div class="playlist-count">${playlist.songs.length}</div>
-                <h4>${playlist.name}</h4>
-                <p class="song-artist">${playlist.description || ''}</p>
-            `;
-            
-            playlistEl.addEventListener('click', () => {
-                this.showPlaylistSongs(playlist);
-            });
-            
-            playlistsList.appendChild(playlistEl);
+        // Позиционирование
+        const x = e.clientX;
+        const y = e.clientY;
+        menu.style.left = `${x}px`;
+        menu.style.top = `${y}px`;
+        
+        // Закрытие при клике вне меню
+        const closeMenu = () => {
+            menu.classList.add('hidden');
+            document.removeEventListener('click', closeMenu);
+        };
+        
+        setTimeout(() => document.addEventListener('click', closeMenu), 100);
+        
+        // Обработка действий
+        menu.querySelectorAll('.context-item').forEach(item => {
+            item.onclick = (e) => {
+                e.stopPropagation();
+                const action = item.dataset.action;
+                this.handleContextAction(action, song);
+                closeMenu();
+            };
         });
     }
 
-    showSongModal(song) {
-        this.currentSong = song;
-        this.transposeSemitones = 0;
-        
-        // Заполнение данных
-        document.getElementById('modal-song-title').textContent = song.title;
-        document.getElementById('modal-song-artist').textContent = song.artist;
-        document.getElementById('modal-song-key').textContent = song.key;
-        document.getElementById('current-key').textContent = song.key;
-        
-        // Отображение текста
-        this.displayLyrics(song.lyrics);
-        
-        // Обновление опций транспонирования
-        document.getElementById('transpose-select').value = song.key;
-        
-        // Показать модалку
-        document.getElementById('song-modal').classList.remove('hidden');
-        document.getElementById('modal-overlay').classList.remove('hidden');
-        
-        // Инициализация аудио
-        if (song.audioOriginal) {
-            this.loadAudio(song.audioOriginal, 'original');
+    handleContextAction(action, song) {
+        switch(action) {
+            case 'edit':
+                this.editSong(song);
+                break;
+            case 'delete':
+                this.confirmDeleteSong(song);
+                break;
+            case 'copy':
+                this.copySongToClipboard(song);
+                break;
+            case 'share':
+                this.shareSong(song);
+                break;
+            case 'favorite':
+                this.toggleFavorite(song.id);
+                break;
+            case 'transpose':
+                this.showQuickTranspose(song);
+                break;
         }
     }
 
-    displayLyrics(lyrics) {
-        const container = document.getElementById('song-lyrics-content');
-        const transposedContainer = document.getElementById('transposed-lyrics');
+    editSong(song) {
+        // Заполняем форму редактирования
+        document.getElementById('song-title').value = song.title;
+        document.getElementById('song-artist').value = song.artist;
+        document.getElementById('song-key').value = song.key;
+        document.getElementById('song-category').value = song.category;
+        document.getElementById('song-lyrics').value = song.lyrics;
         
-        // Простой парсинг аккордов [C], [G], etc
-        const htmlLyrics = lyrics.replace(/\[([^\]]+)\]/g, 
-            '<span class="chord">[$1]</span>');
+        // Показываем модалку с кнопкой "Обновить"
+        const saveBtn = document.getElementById('save-song-btn');
+        saveBtn.innerHTML = '<i class="fas fa-sync"></i> Обновить';
+        saveBtn.dataset.songId = song.id;
+        saveBtn.dataset.isEdit = 'true';
         
-        container.innerHTML = htmlLyrics;
-        transposedContainer.innerHTML = htmlLyrics;
-    }
-
-    transposeSong(semitones) {
-        this.transposeSemitones += semitones;
-        
-        // Обновление текущей тональности
-        const originalKeyIndex = this.chordMap[this.currentSong.key];
-        const newKeyIndex = (originalKeyIndex + this.transposeSemitones + 12) % 12;
-        const newKey = this.chordNames[newKeyIndex];
-        
-        document.getElementById('current-key').textContent = newKey;
-        document.getElementById('transpose-select').value = newKey;
-        
-        // Транспонирование текста
-        this.transposeLyrics();
-    }
-
-    transposeLyrics() {
-        const lyrics = this.currentSong.lyrics;
-        const transposedContainer = document.getElementById('transposed-lyrics');
-        
-        // Простой транспонирование аккордов
-        const transposedLyrics = lyrics.replace(/\[([^\]]+)\]/g, (match, chord) => {
-            if (this.chordMap[chord] !== undefined) {
-                const newIndex = (this.chordMap[chord] + this.transposeSemitones + 12) % 12;
-                return `[${this.chordNames[newIndex]}]`;
-            }
-            return match;
-        });
-        
-        const htmlLyrics = transposedLyrics.replace(/\[([^\]]+)\]/g, 
-            '<span class="chord">[$1]</span>');
-        
-        transposedContainer.innerHTML = htmlLyrics;
-    }
-
-    transposeToKey(targetKey) {
-        const originalKeyIndex = this.chordMap[this.currentSong.key];
-        const targetKeyIndex = this.chordMap[targetKey];
-        
-        this.transposeSemitones = targetKeyIndex - originalKeyIndex;
-        this.transposeLyrics();
-        document.getElementById('current-key').textContent = targetKey;
-    }
-
-    initTransposeOptions() {
-        const select = document.getElementById('transpose-select');
-        select.innerHTML = '';
-        
-        this.chordNames.forEach(chord => {
-            const option = document.createElement('option');
-            option.value = chord;
-            option.textContent = chord;
-            select.appendChild(option);
-        });
-    }
-
-    showAddSongModal() {
         document.getElementById('add-song-modal').classList.remove('hidden');
         document.getElementById('modal-overlay').classList.remove('hidden');
     }
 
-    async saveNewSong() {
-        const title = document.getElementById('song-title').value.trim();
-        const artist = document.getElementById('song-artist').value.trim();
-        const key = document.getElementById('song-key').value;
-        const category = document.getElementById('song-category').value;
-        const lyrics = document.getElementById('song-lyrics').value.trim();
+    confirmDeleteSong(song) {
+        document.getElementById('delete-song-title').textContent = song.title;
+        document.getElementById('delete-confirm-modal').classList.remove('hidden');
+        document.getElementById('modal-overlay').classList.remove('hidden');
         
-        if (!title || !key || !lyrics) {
-            this.showToast('Заполните обязательные поля', 'error');
-            return;
-        }
-        
-        const newSong = {
-            id: Date.now(),
-            title,
-            artist: artist || 'Неизвестен',
-            key,
-            category,
-            lyrics,
-            createdAt: new Date().toISOString(),
-            audioOriginal: null,
-            audioPlayback: null
+        document.getElementById('confirm-delete').onclick = () => {
+            this.deleteSong(song.id);
+            this.closeAllModals();
         };
         
-        // Обработка аудиофайлов
-        const originalFile = document.getElementById('original-audio').files[0];
-        const playbackFile = document.getElementById('playback-audio').files[0];
-        
-        if (originalFile) {
-            newSong.audioOriginal = await this.convertFileToBase64(originalFile);
+        document.getElementById('cancel-delete').onclick = () => {
+            this.closeAllModals();
+        };
+    }
+
+    copySongToClipboard(song) {
+        const text = `${song.title}\n${song.artist}\nТональность: ${song.key}\n\n${song.lyrics}`;
+        navigator.clipboard.writeText(text).then(() => {
+            this.showToast('Текст скопирован в буфер', 'success');
+        });
+    }
+
+    shareSong(song) {
+        if (this.tg.isVersionAtLeast('6.1')) {
+            this.tg.shareMessage({
+                text: `${song.title}\n${song.artist}\nТональность: ${song.key}\n\n${song.lyrics.substring(0, 200)}...`
+            });
+        } else {
+            this.copySongToClipboard(song);
+            this.showToast('Скопировано в буфер, теперь можно поделиться', 'info');
+        }
+    }
+
+    toggleFavorite(songId) {
+        const index = this.favorites.indexOf(songId);
+        if (index === -1) {
+            this.favorites.push(songId);
+        } else {
+            this.favorites.splice(index, 1);
         }
         
-        if (playbackFile) {
-            newSong.audioPlayback = await this.convertFileToBase64(playbackFile);
-        }
-        
-        this.songs.push(newSong);
-        this.saveData();
+        localStorage.setItem('worship_favorites', JSON.stringify(this.favorites));
         this.renderSongs();
-        this.updateCounters();
-        
-        this.closeAllModals();
-        this.showToast('Песня сохранена!', 'success');
-        
-        // Очистка формы
-        document.getElementById('add-song-modal').querySelectorAll('input, textarea, select').forEach(el => {
-            if (el.type !== 'file') el.value = '';
-        });
+        this.showToast(
+            index === -1 ? 'Добавлено в избранное' : 'Удалено из избранного', 
+            'success'
+        );
     }
 
-    async convertFileToBase64(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-        });
-    }
-
-    filterSongs(searchTerm) {
-        const keyFilter = document.getElementById('key-filter').value;
-        const categoryFilter = document.getElementById('category-filter').value;
-        
-        let filtered = this.songs;
-        
-        if (searchTerm) {
-            const term = searchTerm.toLowerCase();
-            filtered = filtered.filter(song => 
-                song.title.toLowerCase().includes(term) ||
-                song.artist.toLowerCase().includes(term)
-            );
-        }
-        
-        if (keyFilter) {
-            filtered = filtered.filter(song => song.key === keyFilter);
-        }
-        
-        if (categoryFilter) {
-            filtered = filtered.filter(song => song.category === categoryFilter);
-        }
-        
-        this.renderSongs(filtered);
-    }
-
-    switchPage(page) {
-        this.currentPage = page;
-        
-        // Обновление активной кнопки навигации
-        document.querySelectorAll('.nav-item').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.page === page);
-        });
-        
-        // Скрыть все секции
-        document.getElementById('songs-section')?.classList.add('hidden');
-        document.getElementById('playlists-section')?.classList.add('hidden');
-        document.getElementById('profile-section')?.classList.add('hidden');
-        
-        // Показать нужную секцию
-        const sectionMap = {
-            'songs': document.querySelector('.songs-container').parentElement,
-            'playlists': document.getElementById('playlists-section'),
-            'profile': document.getElementById('profile-section')
-        };
-        
-        if (sectionMap[page]) {
-            sectionMap[page].classList.remove('hidden');
-        }
-    }
-
-    updateCounters() {
-        document.getElementById('stats-songs').textContent = this.songs.length;
-        document.getElementById('stats-playlists').textContent = this.playlists.length;
-        document.getElementById('stats-transposed').textContent = 
-            this.songs.filter(s => s.transpositions).length || 0;
-    }
-
-    getCategoryName(category) {
-        const categories = {
-            'praise': 'Хвала',
-            'worship': 'Поклонение',
-            'fast': 'Быстрые',
-            'slow': 'Медленные'
-        };
-        return categories[category] || category;
-    }
-
-    closeAllModals() {
-        document.querySelectorAll('.modal').forEach(modal => {
-            modal.classList.add('hidden');
-        });
-        document.getElementById('modal-overlay').classList.add('hidden');
-    }
-
-    showToast(message, type = 'info') {
-        const toastContainer = document.getElementById('toast-container');
-        const toast = document.createElement('div');
-        toast.className = `toast ${type}`;
-        toast.innerHTML = `
-            <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i>
-            <span>${message}</span>
+    showQuickTranspose(song) {
+        // Быстрое транспонирование через попап
+        const modal = document.createElement('div');
+        modal.className = 'modal glass-card';
+        modal.innerHTML = `
+            <div class="modal-header">
+                <h3>Быстрое транспонирование "${song.title}"</h3>
+                <button class="icon-btn close-quick-transpose">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="transpose-presets">
+                    ${this.chordTheory.keys.map(key => `
+                        <div class="transpose-preset ${key === song.key ? 'active' : ''}" 
+                             data-key="${key}">
+                            ${key}
+                        </div>
+                    `).join('')}
+                </div>
+                <div class="transposed-preview" style="margin-top: 20px; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 10px; max-height: 300px; overflow-y: auto;">
+                    ${this.formatLyricsWithChords(this.transposeSongLyrics(song.lyrics, song.key, song.key))}
+                </div>
+            </div>
         `;
         
-        toastContainer.appendChild(toast);
+        document.body.appendChild(modal);
         
-        setTimeout(() => {
-            toast.remove();
-        }, 3000);
-    }
-
-    showCreatePlaylistModal() {
-        const selector = document.getElementById('playlist-songs-selector');
-        selector.innerHTML = '';
-        
-        this.songs.forEach(song => {
-            const checkbox = document.createElement('div');
-            checkbox.className = 'playlist-song-option';
-            checkbox.innerHTML = `
-                <input type="checkbox" id="song-${song.id}" value="${song.id}">
-                <label for="song-${song.id}">
-                    ${song.title} - ${song.artist} (${song.key})
-                </label>
-            `;
-            selector.appendChild(checkbox);
+        // Обработчики
+        modal.querySelector('.close-quick-transpose').onclick = () => modal.remove();
+        modal.querySelectorAll('.transpose-preset').forEach(btn => {
+            btn.onclick = () => {
+                const newKey = btn.dataset.key;
+                const transposed = this.transposeSongLyrics(song.lyrics, song.key, newKey);
+                modal.querySelector('.transposed-preview').innerHTML = 
+                    this.formatLyricsWithChords(transposed);
+                
+                // Обновляем активную кнопку
+                modal.querySelectorAll('.transpose-preset').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            };
         });
-        
-        document.getElementById('create-playlist-modal').classList.remove('hidden');
-        document.getElementById('modal-overlay').classList.remove('hidden');
     }
 
-    savePlaylist() {
-        const name = document.getElementById('playlist-name').value.trim();
-        const description = document.getElementById('playlist-description').value.trim();
+    formatLyricsWithChords(lyrics) {
+        // Преобразуем текст с аккордами в красивый HTML
+        const lines = lyrics.split('\n');
+        return lines.map(line => {
+            if (line.trim() === '') return '<br>';
+            
+            // Проверяем, есть ли в строке аккорды
+            const hasChords = line.includes('[');
+            
+            if (hasChords) {
+                // Разделяем аккорды и текст
+                const parts = line.split(/(\[[^\]]+\])/);
+                return parts.map(part => {
+                    if (part.startsWith('[') && part.endsWith(']')) {
+                        const chord = part.slice(1, -1);
+                        return `<span class="chord-inline">${chord}</span>`;
+                    }
+                    return `<span>${part}</span>`;
+                }).join('');
+            }
+            
+            return `<div class="lyrics-line">${line}</div>`;
+        }).join('');
+    }
+
+    // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+    getGradientForSong(id) {
+        const gradients = [
+            'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+            'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+            'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
+            'linear-gradient(135deg, #fa709a 0%, #fee140 100%)'
+        ];
+        return gradients[id % gradients.length];
+    }
+
+    formatDate(dateString) {
+        const date = new Date(dateString);
+        return date.toLocaleDateString('ru-RU', {
+            day: 'numeric',
+            month: 'short',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
+
+    handleOnlineStatus(isOnline) {
+        this.isOnline = isOnline;
+        const indicator = document.querySelector('.sync-indicator');
         
-        if (!name) {
-            this.showToast('Введите название плейлиста', 'error');
-            return;
+        if (isOnline) {
+            indicator.innerHTML = '<i class="fas fa-wifi"></i> Онлайн';
+            indicator.className = 'sync-indicator syncing';
+            // Пытаемся синхронизировать ожидающие изменения
+            this.syncPendingChanges();
+        } else {
+            indicator.innerHTML = '<i class="fas fa-wifi-slash"></i> Офлайн';
+            indicator.className = 'sync-indicator error';
         }
-        
-        const selectedSongs = [];
-        document.querySelectorAll('#playlist-songs-selector input:checked').forEach(cb => {
-            selectedSongs.push(parseInt(cb.value));
-        });
-        
-        const newPlaylist = {
-            id: Date.now(),
-            name,
-            description,
-            songs: selectedSongs,
-            createdAt: new Date().toISOString()
-        };
-        
-        this.playlists.push(newPlaylist);
-        this.saveData();
-        this.renderPlaylists();
-        
-        this.closeAllModals();
-        this.showToast('Плейлист создан!', 'success');
     }
 }
 
-// Инициализация приложения
+// Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', () => {
     window.app = new WorshipSongsApp();
     
-    // Обработчик сохранения плейлиста
-    document.getElementById('save-playlist-btn').addEventListener('click', () => {
-        window.app.savePlaylist();
-    });
+    // Добавляем индикатор синхронизации в DOM
+    const syncIndicator = document.createElement('div');
+    syncIndicator.id = 'sync-indicator';
+    syncIndicator.className = 'sync-indicator syncing';
+    syncIndicator.innerHTML = '<i class="fas fa-sync fa-spin"></i> Синхронизация...';
+    document.body.appendChild(syncIndicator);
 });
