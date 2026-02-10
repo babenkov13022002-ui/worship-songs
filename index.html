@@ -327,5 +327,89 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script src="app.js"></script>
+    <!-- ДОБАВИТЬ в конец body перед </body> -->
+
+<!-- Модалка редактирования песни -->
+<div id="edit-song-modal" class="modal glass-card hidden">
+    <!-- Содержимое аналогично add-song-modal -->
+</div>
+
+<!-- Модалка подтверждения удаления -->
+<div id="delete-confirm-modal" class="modal glass-card hidden">
+    <div class="modal-header">
+        <h3><i class="fas fa-exclamation-triangle"></i> Подтверждение</h3>
+    </div>
+    <div class="modal-body">
+        <p>Вы уверены, что хотите удалить песню "<span id="delete-song-title"></span>"?</p>
+        <p class="text-warning">Это действие нельзя отменить!</p>
+    </div>
+    <div class="modal-footer">
+        <button class="btn btn-secondary" id="cancel-delete">Отмена</button>
+        <button class="btn btn-danger" id="confirm-delete">
+            <i class="fas fa-trash"></i> Удалить
+        </button>
+    </div>
+</div>
+
+<!-- Модалка настроек -->
+<div id="settings-modal" class="modal glass-card hidden">
+    <div class="modal-header">
+        <h3><i class="fas fa-cog"></i> Настройки</h3>
+        <button class="icon-btn close-modal">
+            <i class="fas fa-times"></i>
+        </button>
+    </div>
+    <div class="modal-body">
+        <div class="setting-item">
+            <label class="switch">
+                <input type="checkbox" id="auto-save-toggle" checked>
+                <span class="slider"></span>
+            </label>
+            <span>Автосохранение</span>
+        </div>
+        <div class="setting-item">
+            <label class="switch">
+                <input type="checkbox" id="offline-mode-toggle" checked>
+                <span class="slider"></span>
+            </label>
+            <span>Офлайн-режим</span>
+        </div>
+        <div class="setting-item">
+            <label>Тема:</label>
+            <select id="theme-select" class="form-select">
+                <option value="auto">Авто</option>
+                <option value="light">Светлая</option>
+                <option value="dark">Темная</option>
+                <option value="purple">Фиолетовая</option>
+            </select>
+        </div>
+        <button class="btn btn-secondary" id="export-data-btn">
+            <i class="fas fa-download"></i> Экспорт всех данных
+        </button>
+    </div>
+</div>
+
+<!-- Контекстное меню для песен -->
+<div id="song-context-menu" class="context-menu glass-card hidden">
+    <div class="context-item" data-action="edit">
+        <i class="fas fa-edit"></i> Редактировать
+    </div>
+    <div class="context-item" data-action="delete">
+        <i class="fas fa-trash"></i> Удалить
+    </div>
+    <div class="context-item" data-action="copy">
+        <i class="fas fa-copy"></i> Копировать текст
+    </div>
+    <div class="context-item" data-action="share">
+        <i class="fas fa-share"></i> Поделиться
+    </div>
+    <div class="context-item" data-action="favorite">
+        <i class="fas fa-star"></i> В избранное
+    </div>
+    <div class="context-item" data-action="transpose">
+        <i class="fas fa-sliders-h"></i> Быстрое транспонирование
+    </div>
+</div>
 </body>
+
 </html>
