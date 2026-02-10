@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Worship Songs • Команда прославления</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="manifest" href="manifest.json">
+</head>
+<body>
+    <!-- Экран загрузки -->
+    <div id="loading-screen" class="loading-screen">
+        <div class="logo-container">
+            <div class="logo-animation">
+                <div class="music-note note1">♪</div>
+                <div class="music-note note2">♫</div>
+                <div class="logo-text">Worship<br>Songs</div>
+                <div class="music-note note3">🎵</div>
+                <div class="music-note note4">🎶</div>
+            </div>
+            <div class="loading-progress">
+                <div class="progress-bar"></div>
+                <div class="loading-text">Загрузка вашей музыки...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Основной интерфейс -->
+    <div id="app" class="app-container hidden">
+        <!-- Верхняя панель -->
+        <header class="glass-header">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-cross"></i>
+                    <span>Worship Songs</span>
+                </div>
+                <div class="header-actions">
+                    <button class="icon-btn" id="profile-btn">
+                        <i class="fas fa-user"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Основное содержимое -->
+        <main class="main-content">
+            <!-- Поиск и фильтры -->
+            <div class="search-section glass-card">
+                <div class="search-container">
+                    <i class="fas fa-search search-icon"></i>
+                    <input type="text" 
+                           id="search-input" 
+                           class="search-input" 
+                           placeholder="Поиск песен...">
+                    <button class="filter-btn" id="filter-btn">
+                        <i class="fas fa-filter"></i>
+                    </button>
+                </div>
+                <div class="filter-options hidden" id="filter-options">
+                    <select id="key-filter" class="filter-select">
+                        <option value="">Все тональности</option>
+                        <option value="C">C</option>
+                        <option value="D">D</option>
+                        <option value="E">E</option>
+                        <option value="F">F</option>
+                        <option value="G">G</option>
+                        <option value="A">A</option>
+                        <option value="B">B</option>
+                    </select>
+                    <select id="category-filter" class="filter-select">
+                        <option value="">Все категории</option>
+                        <option value="praise">Хвала</option>
+                        <option value="worship">Поклонение</option>
+                        <option value="fast">Быстрые</option>
+                        <option value="slow">Медленные</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Список песен -->
+            <div class="songs-container">
+                <div class="section-header">
+                    <h2><i class="fas fa-music"></i> Все песни</h2>
+                    <span id="songs-count" class="counter">0</span>
+                </div>
+                <div id="songs-list" class="songs-list">
+                    <!-- Песни будут добавляться через JS -->
+                </div>
+            </div>
+
+            <!-- Плейлисты (скрыто по умолчанию) -->
+            <div id="playlists-section" class="hidden">
+                <div class="section-header">
+                    <h2><i class="fas fa-list"></i> Плейлисты</h2>
+                    <button class="icon-btn small" id="create-playlist-btn">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </div>
+                <div id="playlists-list" class="playlists-grid">
+                    <!-- Плейлисты будут добавляться через JS -->
+                </div>
+            </div>
+
+            <!-- Профиль (скрыто по умолчанию) -->
+            <div id="profile-section" class="hidden">
+                <div class="profile-card glass-card">
+                    <div class="profile-header">
+                        <div class="avatar-large">
+                            <i class="fas fa-user"></i>
+                        </div>
+                        <div class="profile-info">
+                            <h3 id="user-name">Имя пользователя</h3>
+                            <p class="user-role">Участник команды</p>
+                        </div>
+                    </div>
+                    <div class="profile-stats">
+                        <div class="stat-item">
+                            <div class="stat-number" id="stats-songs">0</div>
+                            <div class="stat-label">Песен</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-number" id="stats-playlists">0</div>
+                            <div class="stat-label">Плейлистов</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-number" id="stats-transposed">0</div>
+                            <div class="stat-label">Транспозиций</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Нижняя навигация -->
+        <nav class="bottom-nav glass-nav">
+            <button class="nav-item active" data-page="songs">
+                <i class="fas fa-music"></i>
+                <span>Песни</span>
+            </button>
+            <button class="nav-item" data-page="playlists">
+                <i class="fas fa-list"></i>
+                <span>Плейлисты</span>
+            </button>
+            <button class="nav-item add-song-btn" id="add-song-btn">
+                <i class="fas fa-plus-circle"></i>
+            </button>
+            <button class="nav-item" data-page="profile">
+                <i class="fas fa-user"></i>
+                <span>Профиль</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- Модальные окна -->
+    <div id="modal-overlay" class="modal-overlay hidden"></div>
+
+    <!-- Модалка добавления песни -->
+    <div id="add-song-modal" class="modal glass-card hidden">
+        <div class="modal-header">
+            <h3><i class="fas fa-plus"></i> Новая песня</h3>
+            <button class="icon-btn close-modal">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <input type="text" id="song-title" class="form-input" placeholder="Название песни">
+            </div>
+            <div class="form-group">
+                <input type="text" id="song-artist" class="form-input" placeholder="Исполнитель/автор">
+            </div>
+            <div class="form-row">
+                <div class="form-group half">
+                    <select id="song-key" class="form-select">
+                        <option value="">Тональность</option>
+                        <option value="C">C (До)</option>
+                        <option value="D">D (Ре)</option>
+                        <option value="E">E (Ми)</option>
+                        <option value="F">F (Фа)</option>
+                        <option value="G">G (Соль)</option>
+                        <option value="A">A (Ля)</option>
+                        <option value="B">B (Си)</option>
+                    </select>
+                </div>
+                <div class="form-group half">
+                    <select id="song-category" class="form-select">
+                        <option value="">Категория</option>
+                        <option value="praise">Хвала</option>
+                        <option value="worship">Поклонение</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <textarea id="song-lyrics" class="form-textarea" 
+                          placeholder="Текст с аккордами (формат: [C]Текст [G]песни)" 
+                          rows="8"></textarea>
+            </div>
+            <div class="form-group">
+                <label class="file-upload">
+                    <i class="fas fa-upload"></i>
+                    <span>Загрузить оригинал (MP3)</span>
+                    <input type="file" id="original-audio" accept="audio/*" hidden>
+                </label>
+                <label class="file-upload">
+                    <i class="fas fa-upload"></i>
+                    <span>Загрузить плейбэк (MP3)</span>
+                    <input type="file" id="playback-audio" accept="audio/*" hidden>
+                </label>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary close-modal">Отмена</button>
+            <button class="btn btn-primary" id="save-song-btn">
+                <i class="fas fa-save"></i> Сохранить
+            </button>
+        </div>
+    </div>
+
+    <!-- Модалка просмотра песни -->
+    <div id="song-modal" class="modal song-modal glass-card hidden">
+        <div class="song-modal-header">
+            <button class="icon-btn back-to-list">
+                <i class="fas fa-arrow-left"></i>
+            </button>
+            <div class="song-title-section">
+                <h3 id="modal-song-title">Название</h3>
+                <div class="song-meta">
+                    <span id="modal-song-artist">Исполнитель</span>
+                    <span class="key-badge" id="modal-song-key">C</span>
+                </div>
+            </div>
+            <button class="icon-btn" id="edit-song-btn">
+                <i class="fas fa-edit"></i>
+            </button>
+        </div>
+        
+        <div class="song-modal-body">
+            <!-- Аудиоплеер -->
+            <div class="audio-player glass-card">
+                <div class="player-tabs">
+                    <button class="player-tab active" data-audio="original">
+                        <i class="fas fa-music"></i> Оригинал
+                    </button>
+                    <button class="player-tab" data-audio="playback">
+                        <i class="fas fa-headphones"></i> Плейбэк
+                    </button>
+                </div>
+                <div class="player-controls">
+                    <audio id="song-audio" controls>
+                        Ваш браузер не поддерживает аудио
+                    </audio>
+                </div>
+            </div>
+
+            <!-- Транспонирование -->
+            <div class="transpose-section glass-card">
+                <div class="transpose-header">
+                    <h4><i class="fas fa-sliders-h"></i> Транспонировать</h4>
+                    <div class="current-key">
+                        Текущая: <strong id="current-key">C</strong>
+                    </div>
+                </div>
+                <div class="transpose-controls">
+                    <button class="icon-btn" id="transpose-down">
+                        <i class="fas fa-arrow-down"></i> -1
+                    </button>
+                    <div class="key-selector">
+                        <select id="transpose-select" class="form-select">
+                            <!-- Опции будут через JS -->
+                        </select>
+                    </div>
+                    <button class="icon-btn" id="transpose-up">
+                        +1 <i class="fas fa-arrow-up"></i>
+                    </button>
+                </div>
+                <div class="transposed-lyrics" id="transposed-lyrics">
+                    <!-- Текст с транспонированными аккордами -->
+                </div>
+            </div>
+
+            <!-- Текст песни -->
+            <div class="lyrics-section glass-card">
+                <h4><i class="fas fa-file-alt"></i> Текст с аккордами</h4>
+                <div class="lyrics-content" id="song-lyrics-content">
+                    <!-- Текст песни будет здесь -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модалка создания плейлиста -->
+    <div id="create-playlist-modal" class="modal glass-card hidden">
+        <div class="modal-header">
+            <h3><i class="fas fa-plus"></i> Новый плейлист</h3>
+            <button class="icon-btn close-modal">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <input type="text" id="playlist-name" class="form-input" 
+                       placeholder="Название плейлиста (например: 'Воскресное служение')">
+            </div>
+            <div class="form-group">
+                <textarea id="playlist-description" class="form-textarea" 
+                          placeholder="Описание (необязательно)" 
+                          rows="3"></textarea>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Выберите песни:</label>
+                <div id="playlist-songs-selector">
+                    <!-- Список песен для выбора -->
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary close-modal">Отмена</button>
+            <button class="btn btn-primary" id="save-playlist-btn">
+                <i class="fas fa-save"></i> Создать
+            </button>
+        </div>
+    </div>
+
+    <!-- Уведомления -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
