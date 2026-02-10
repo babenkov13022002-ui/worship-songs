@@ -793,4 +793,240 @@ audio {
     .playlists-grid {
         grid-template-columns: repeat(2, 1fr);
     }
+
+}
+/* ДОБАВИТЬ в конец файла */
+
+/* Контекстное меню */
+.context-menu {
+    position: fixed;
+    z-index: 1000;
+    min-width: 200px;
+    background: rgba(40, 40, 45, 0.95);
+    backdrop-filter: blur(20px);
+    border-radius: 12px;
+    padding: 8px 0;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    animation: slideInUp 0.2s ease;
+}
+
+.context-item {
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.context-item:hover {
+    background: rgba(157, 78, 221, 0.2);
+    color: white;
+}
+
+.context-item i {
+    width: 20px;
+    text-align: center;
+}
+
+/* Переключатели (switches) */
+.setting-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 15px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 50px;
+    height: 26px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.1);
+    transition: .4s;
+    border-radius: 34px;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 4px;
+    bottom: 4px;
+    background: white;
+    transition: .4s;
+    border-radius: 50%;
+}
+
+input:checked + .slider {
+    background: var(--accent-purple);
+}
+
+input:checked + .slider:before {
+    transform: translateX(24px);
+}
+
+/* Аккорды в тексте */
+.chord-line {
+    font-weight: bold;
+    color: var(--accent-purple);
+    margin: 5px 0;
+    font-family: 'Courier New', monospace;
+    line-height: 1.8;
+}
+
+.lyrics-line {
+    margin: 0 0 15px 0;
+    line-height: 1.6;
+}
+
+.chord-inline {
+    color: var(--accent-blue);
+    font-weight: bold;
+    position: relative;
+    top: -8px;
+    font-size: 0.9em;
+}
+
+/* Кнопки действий в песне */
+.song-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.action-btn {
+    flex: 1;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.3s ease;
+}
+
+.action-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    transform: translateY(-2px);
+}
+
+.action-btn i {
+    font-size: 1.2rem;
+}
+
+/* Индикатор синхронизации */
+.sync-indicator {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 15px;
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 20px;
+    font-size: 0.9rem;
+    animation: fadeIn 0.3s ease;
+}
+
+.sync-indicator.syncing {
+    color: #ffc107;
+}
+
+.sync-indicator.synced {
+    color: #34c759;
+}
+
+.sync-indicator.error {
+    color: #ff3b30;
+}
+
+/* Drag & drop */
+.draggable {
+    cursor: grab;
+}
+
+.draggable:active {
+    cursor: grabbing;
+}
+
+.drag-over {
+    border: 2px dashed var(--accent-purple) !important;
+    background: rgba(157, 78, 221, 0.1) !important;
+}
+
+/* Транспонирование - улучшенное */
+.transpose-presets {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin: 15px 0;
+}
+
+.transpose-preset {
+    padding: 10px;
+    text-align: center;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.transpose-preset:hover {
+    background: rgba(255, 255, 255, 0.1);
+    transform: scale(1.05);
+}
+
+.transpose-preset.active {
+    background: var(--accent-purple);
+    color: white;
+}
+
+/* Анимации */
+@keyframes slideInUp {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+.pulse {
+    animation: pulse 2s infinite;
 }
